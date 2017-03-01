@@ -1,30 +1,38 @@
 #include "contiki.h"
+#include "contiki-lib.h"
 #include "contiki-net.h"
-#include "net/ipv6/multicast/uip-mcast6.h"
-#include "aes256.h"
-#include "skipjack.c"
-#include <stdio.h>
-#include "net/ip/uip-debug.h"
-
-#undef CIPHMODE
-#define CIPHMODE		0 /*AES = 0, SkipJack = 1, Default HW Cipher = 2 */
+//#include "net/ipv6/multicast/uip-mcast6.h"
+//#include "aes256.h"
+//#include "skipjack.c"
 #if CIPHMODE == 0
-  #define KEYSIZE		32 /* In byte */
+  #include "aes256.h"
+  #define KEYSIZE		32 	// In byte
+  #define BLOCKSIZE		16 	// In byte
 #elif CIPHMODE == 1
-  #define KEYSIZE		10 /* In byte */
+  #include "skipjack.c"
+  #define KEYSIZE		10 	// In byte
+  #define BLOCKSIZE		8 	// In byte
+#elif CIPHMODE == 2
+  #include "crypto-hw.h"
+  #define KEYSIZE		32 	// In byte
+  #define BLOCKSIZE		16 	// In byte
 #endif
-
-#define ENERG_EN		0 /* 0 or 1 */
+/*
+#define ENERG_EN		1 	// 0 or 1
 #if ENERG_EN
   #include "sys/energest.h"
 #endif
+*/
+//#include "net/ip/uip-debug.h"
+#include "net/uip-debug.h"
+#include <stdio.h>
 
-#define DEBUG			DEBUG_PRINT
+#define DEBUG			DEBUG_NONE
 #define DEBUG_LOCAL		0
 #define ID_LENGTH		4 /* In byte */
 #define MCAST_SINK_UDP_PORT	3001 /* Host byte order */
 
-static uint8_t i;
+//static uint8_t i;
 static uint8_t groupKey[KEYSIZE] = {xxxx}; /* Group Key */
 static uint8_t nodeKey[KEYSIZE] = {xxxx}; /* Node Key */
 
@@ -33,6 +41,7 @@ static struct uip_udp_conn *motes_conn;
 PROCESS(motes_process, "Multicast Sink");
 AUTOSTART_PROCESSES(&motes_process);
 /*---------------------------------------------------------------------------*/
+/*
 static void
 PRINTARR(char* title, uint8_t* arry, uint8_t size) 
 { 
@@ -41,13 +50,14 @@ PRINTARR(char* title, uint8_t* arry, uint8_t size)
   printf("%02x", arry[i]);		
   printf("\n");
 }
+*/
 /*---------------------------------------------------------------------------*/
 static void
 msg_dec(uint8_t* appdata, uint8_t appdataLen)
 { 
   // Initilization
   uint8_t type = appdata[0];
-#if CIPHMODE == 0
+#if ((CIPHMODE == 0) || (CIPHMODE == 2))
   uint8_t len_inp = 48;
 #elif CIPHMODE == 1
   uint8_t len_inp = 16;
@@ -74,6 +84,8 @@ msg_dec(uint8_t* appdata, uint8_t appdataLen)
   aes256_decrypt_cbc(inp_dec, len_inp, key, out_dec);
 #elif CIPHMODE == 1
   doSJDecrypt(key, inp_dec, len_inp, out_dec);
+#elif CIPHMODE == 2
+  aes256_decrypt_cbc_hw(inp_dec, len_inp, key, out_dec);
 #endif
 
   // Display the input and output of AES CBC decryption
@@ -150,13 +162,13 @@ PROCESS_THREAD(motes_process, ev, data)
 {
   PROCESS_BEGIN();
   NETSTACK_MAC.off(1);
-
+/*
 #if ENERG_EN
   uint32_t cpu_start_time, cpu_time;
   ENERGEST_OFF(ENERGEST_TYPE_CPU);
   ENERGEST_ON(ENERGEST_TYPE_CPU);
 #endif
-
+*/
   set_addr();
   motes_conn = udp_new(NULL, UIP_HTONS(0), NULL);
   udp_bind(motes_conn, UIP_HTONS(MCAST_SINK_UDP_PORT));
@@ -169,15 +181,18 @@ PROCESS_THREAD(motes_process, ev, data)
   while(1) {
     PROCESS_YIELD();
     if(ev == tcpip_event) {
+/*
 #if ENERG_EN
       cpu_start_time = energest_type_time(ENERGEST_TYPE_CPU);
 #endif
+*/
       tcpip_handler();
-
+/*
 #if ENERG_EN
       cpu_time = energest_type_time(ENERGEST_TYPE_CPU) - cpu_start_time;
       printf("Time: CPU %lu\n", cpu_time);
 #endif
+*/
     }
   }
   PROCESS_END();
